@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -17,6 +18,9 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
 
   bool hideNewPassword = true;
   bool hideConfirmPassword = true;
+  bool isSaving = false;
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   void dispose() {
@@ -24,6 +28,87 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
     confirmPasswordController.dispose();
     super.dispose();
   }
+
+  // ============================================================
+  // CHANGE ADMIN PASSWORD
+  // ============================================================
+
+  Future<void> _changePassword() async {
+    final newPassword = newPasswordController.text.trim();
+
+    final confirmPassword = confirmPasswordController.text.trim();
+
+    // ----------------------------------------------------------
+    // VALIDATION
+    // ----------------------------------------------------------
+
+    if (newPassword.isEmpty || confirmPassword.isEmpty) {
+      _showMessage('Please fill all fields.', Colors.red);
+      return;
+    }
+
+    if (newPassword != confirmPassword) {
+      _showMessage('New passwords do not match.', Colors.red);
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      _showMessage('Password must be at least 6 characters.', Colors.red);
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // SAVE
+    // ----------------------------------------------------------
+
+    setState(() {
+      isSaving = true;
+    });
+
+    try {
+      await _firestore.collection('settings').doc('admin').set({
+        'adminPassword': newPassword,
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+
+      _showMessage('Admin password changed successfully.', Colors.green);
+
+      newPasswordController.clear();
+      confirmPasswordController.clear();
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+
+      _showMessage('Failed to change admin password.', Colors.red);
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSaving = false;
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // MESSAGE
+  // ============================================================
+
+  void _showMessage(String message, Color color) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.poppins()),
+        backgroundColor: color,
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +121,7 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
         centerTitle: true,
 
         title: Text(
-          "Change Password",
+          'Change Password',
           style: GoogleFonts.poppins(
             color: Colors.white,
             fontSize: 21,
@@ -55,6 +140,7 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
             const CircleAvatar(
               radius: 45,
               backgroundColor: Colors.white24,
+
               child: Icon(
                 Icons.lock_reset_rounded,
                 color: Colors.white,
@@ -65,7 +151,7 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
             const SizedBox(height: 20),
 
             Text(
-              "Update Admin Password",
+              'Update Admin Password',
               style: GoogleFonts.poppins(
                 color: Colors.white,
                 fontSize: 21,
@@ -76,83 +162,88 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
             const SizedBox(height: 8),
 
             Text(
-              "Choose a new password.",
+              'Choose a new password.',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(color: Colors.white70, fontSize: 13),
             ),
 
             const SizedBox(height: 35),
 
+            // ------------------------------------------------
+            // NEW PASSWORD
+            // ------------------------------------------------
             _passwordField(
               controller: newPasswordController,
-              hint: "New Password",
+              hint: 'New Password',
               hidden: hideNewPassword,
-              onVisibilityPressed: () {
-                setState(() {
-                  hideNewPassword = !hideNewPassword;
-                });
-              },
+              onVisibilityPressed: isSaving
+                  ? null
+                  : () {
+                      setState(() {
+                        hideNewPassword = !hideNewPassword;
+                      });
+                    },
             ),
 
             const SizedBox(height: 18),
 
+            // ------------------------------------------------
+            // CONFIRM PASSWORD
+            // ------------------------------------------------
             _passwordField(
               controller: confirmPasswordController,
-              hint: "Confirm New Password",
+              hint: 'Confirm New Password',
               hidden: hideConfirmPassword,
-              onVisibilityPressed: () {
-                setState(() {
-                  hideConfirmPassword = !hideConfirmPassword;
-                });
-              },
+              onVisibilityPressed: isSaving
+                  ? null
+                  : () {
+                      setState(() {
+                        hideConfirmPassword = !hideConfirmPassword;
+                      });
+                    },
             ),
 
             const SizedBox(height: 30),
+
+            // ------------------------------------------------
+            // CHANGE PASSWORD BUTTON
+            // ------------------------------------------------
             SizedBox(
               width: double.infinity,
               height: 55,
+
               child: ElevatedButton.icon(
-                onPressed: () {
-                  final newPassword = newPasswordController.text.trim();
+                onPressed: isSaving ? null : _changePassword,
 
-                  final confirmPassword = confirmPasswordController.text.trim();
+                icon: isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.blue,
+                        ),
+                      )
+                    : const Icon(Icons.lock_reset),
 
-                  if (newPassword.isEmpty || confirmPassword.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Please fill all fields"),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (newPassword != confirmPassword) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("New passwords do not match"),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  // Actual password change Firebase ke baad add hoga.
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Password changed successfully"),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-
-                  Navigator.pop(context);
-                },
-                icon: const Icon(Icons.lock_reset),
                 label: Text(
-                  "CHANGE PASSWORD",
+                  isSaving ? 'UPDATING...' : 'CHANGE PASSWORD',
+
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+
+                  foregroundColor: Colors.blue,
+
+                  disabledBackgroundColor: Colors.white70,
+
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
                   ),
                 ),
               ),
@@ -165,27 +256,43 @@ class _ChangeAdminPasswordScreenState extends State<ChangeAdminPasswordScreen> {
     );
   }
 
+  // ============================================================
+  // PASSWORD FIELD
+  // ============================================================
+
   Widget _passwordField({
     required TextEditingController controller,
     required String hint,
     required bool hidden,
-    required VoidCallback onVisibilityPressed,
+    required VoidCallback? onVisibilityPressed,
   }) {
     return TextField(
       controller: controller,
+
       obscureText: hidden,
+
+      enabled: !isSaving,
+
       style: const TextStyle(color: Colors.black),
+
       decoration: InputDecoration(
         hintText: hint,
+
         prefixIcon: const Icon(Icons.lock_outline),
+
         suffixIcon: IconButton(
           onPressed: onVisibilityPressed,
+
           icon: Icon(hidden ? Icons.visibility_off : Icons.visibility),
         ),
+
         filled: true,
+
         fillColor: Colors.white,
+
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
+
           borderSide: BorderSide.none,
         ),
       ),

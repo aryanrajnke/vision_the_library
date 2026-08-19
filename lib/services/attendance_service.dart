@@ -1,207 +1,337 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
-import 'package:vision_the_library/services/library_settings_service.dart';
 
 class AttendanceService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final LibrarySettingsService _settingsService = LibrarySettingsService();
 
-  /// Today's Date String (Format: YYYY-MM-DD)
-  String get _todayDateStr => DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-  /// Specific Date String (Format: YYYY-MM-DD)
-  String _getDateStr(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
-
-  /// Reference for Student Attendance Base Doc (VLT0000)
-  DocumentReference _getStudentBaseDocRef(String studentLibraryId) {
-    return _firestore.collection('attendance').doc(studentLibraryId);
+  String _dateId(DateTime date) {
+    return "${date.year}-"
+        "${date.month.toString().padLeft(2, '0')}-"
+        "${date.day.toString().padLeft(2, '0')}";
   }
 
-  /// Reference for Student Daily Attendance Document (VLT0000 -> days -> YYYY-MM-DD)
-  DocumentReference _getDailyDocRef(String studentLibraryId, String dateStr) {
-    return _getStudentBaseDocRef(
-      studentLibraryId,
-    ).collection('days').doc(dateStr);
+  DocumentReference<Map<String, dynamic>> _dayDocument(
+    String libraryId,
+    DateTime date,
+  ) {
+    return _firestore
+        .collection("attendance")
+        .doc(libraryId)
+        .collection("days")
+        .doc(_dateId(date));
   }
 
-  /// Ensure Parent Student Doc Exists (AUTOMATIC PARENT CREATION)
-  Future<void> _ensureStudentDocExists(String studentLibraryId) async {
-    final baseDocRef = _getStudentBaseDocRef(studentLibraryId);
-    // Automatic field creation so document is never phantom/virtual
-    await baseDocRef.set({
-      'libraryId': studentLibraryId,
-      'lastActive': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+  List<Map<String, dynamic>> _getSessions(Map<String, dynamic> data) {
+    final rawSessions = data["sessions"];
+
+    if (rawSessions is List) {
+      return rawSessions
+          .whereType<Map>()
+          .map((session) => Map<String, dynamic>.from(session))
+          .toList();
+    }
+
+    // Old single-session data compatibility.
+    final entryAt = data["entryAt"];
+    final exitAt = data["exitAt"];
+
+    if (entryAt != null) {
+      return [
+        {
+          "sessionNo": 1,
+          "entryAt": entryAt,
+          "exitAt": exitAt,
+          "autoEntry": data["autoEntry"] ?? false,
+          "autoExit": data["autoExit"] ?? false,
+        },
+      ];
+    }
+
+    return [];
   }
 
-  /// Get Today's Main Document Stream
-  Stream<DocumentSnapshot> getTodayAttendanceStream(String studentLibraryId) {
-    return _getDailyDocRef(studentLibraryId, _todayDateStr).snapshots();
+  bool _hasOpenSession(Map<String, dynamic> data) {
+    final sessions = _getSessions(data);
+
+    if (sessions.isEmpty) {
+      return false;
+    }
+
+    final lastSession = sessions.last;
+
+    return lastSession["entryAt"] != null && lastSession["exitAt"] == null;
   }
 
-  /// Get Today's Active Sub-collection Sessions Stream
-  Stream<QuerySnapshot> getTodaySessionsStream(String studentLibraryId) {
-    return _getDailyDocRef(studentLibraryId, _todayDateStr)
-        .collection('sessions')
-        .orderBy('sessionNumber', descending: false)
-        .snapshots();
-  }
-
-  /// Check Previous Day Auto-Exit Logic
-  Future<void> checkAndProcessAutoExit(String studentLibraryId) async {
+  Future<int> _getMaxSessions() async {
     try {
-      final now = DateTime.now();
-      final yesterdayStr = _getDateStr(now.subtract(const Duration(days: 1)));
-
-      final yesterdayDocRef = _getDailyDocRef(studentLibraryId, yesterdayStr);
-      final activeSessions = await yesterdayDocRef
-          .collection('sessions')
-          .where('exitAt', isNull: true)
+      final snapshot = await _firestore
+          .collection("library_settings")
+          .doc("config")
           .get();
 
-      for (var doc in activeSessions.docs) {
-        final attendanceDate = DateTime.parse(yesterdayStr);
-        final autoExitTime = DateTime(
-          attendanceDate.year,
-          attendanceDate.month,
-          attendanceDate.day,
+      if (!snapshot.exists) {
+        return 3;
+      }
+
+      final data = snapshot.data();
+
+      final value = data?["maxSessionsPerDay"];
+
+      if (value is int && value > 0) {
+        return value;
+      }
+
+      if (value is num && value > 0) {
+        return value.toInt();
+      }
+
+      return 3;
+    } catch (_) {
+      return 3;
+    }
+  }
+
+  /// Checks and processes attendance rollover when
+  /// the student opens the app.
+  ///
+  /// IMPORTANT:
+  /// The app does NOT run in the background.
+  ///
+  /// Example:
+  ///
+  /// Day 1
+  /// 08:00 PM -> Manual Entry
+  /// No Manual Exit
+  ///
+  /// Day 2
+  /// App opened
+  /// -> Day 1 session is completed at 11:59:59 PM
+  /// -> Day 2 automatic entry is created at 12:00:00 AM
+  ///
+  /// If Day 2 student manually exits:
+  ///
+  /// Day 2
+  /// 12:00 AM -> Auto Entry
+  /// 05:00 AM -> Manual Exit
+  ///
+  /// Day 3
+  /// -> No automatic entry
+  ///
+  /// If Day 2 is still open when Day 3 is opened:
+  ///
+  /// Day 2 -> Auto Exit at 11:59:59 PM
+  /// Day 3 -> Auto Entry at 12:00:00 AM
+  Future<void> checkPreviousAttendance(String libraryId) async {
+    try {
+      final now = DateTime.now();
+
+      final todayStart = DateTime(now.year, now.month, now.day, 0, 0, 0);
+
+      final previousDay = todayStart.subtract(const Duration(days: 1));
+
+      final previousDocument = _dayDocument(libraryId, previousDay);
+
+      final todayDocument = _dayDocument(libraryId, todayStart);
+
+      final previousSnapshot = await previousDocument.get();
+
+      /*
+       * No previous attendance means there is
+       * nothing to rollover.
+       */
+      if (!previousSnapshot.exists) {
+        return;
+      }
+
+      final previousData = previousSnapshot.data();
+
+      if (previousData == null) {
+        return;
+      }
+
+      /*
+       * If previous day is already completed,
+       * DO NOT create automatic entry today.
+       */
+      if (!_hasOpenSession(previousData)) {
+        return;
+      }
+
+      final previousSessions = _getSessions(previousData);
+
+      if (previousSessions.isEmpty) {
+        return;
+      }
+
+      final previousLastIndex = previousSessions.length - 1;
+
+      final previousLastSession = Map<String, dynamic>.from(
+        previousSessions[previousLastIndex],
+      );
+
+      /*
+       * Safety check.
+       */
+      if (previousLastSession["entryAt"] == null) {
+        return;
+      }
+
+      if (previousLastSession["exitAt"] != null) {
+        return;
+      }
+
+      /*
+       * Previous day's open session is
+       * automatically closed at 11:59:59 PM.
+       */
+      final automaticExit = Timestamp.fromDate(
+        DateTime(
+          previousDay.year,
+          previousDay.month,
+          previousDay.day,
           23,
           59,
           59,
-        );
+        ),
+      );
 
-        await doc.reference.update({
-          'exitAt': Timestamp.fromDate(autoExitTime),
-          'autoExit': true,
-        });
+      previousLastSession["exitAt"] = automaticExit;
+
+      previousLastSession["autoExit"] = true;
+
+      previousSessions[previousLastIndex] = previousLastSession;
+
+      await previousDocument.update({
+        "sessions": previousSessions,
+        "exitAt": automaticExit,
+        "status": "Completed",
+        "autoExit": true,
+        "updatedAt": FieldValue.serverTimestamp(),
+      });
+
+      /*
+       * Now check today's document.
+       *
+       * We create today's automatic session
+       * ONLY if today's attendance does not
+       * already exist.
+       */
+      final todaySnapshot = await todayDocument.get();
+
+      /*
+       * If today already has attendance,
+       * NEVER overwrite it.
+       *
+       * This protects a manually completed
+       * today's session.
+       */
+      if (todaySnapshot.exists) {
+        final todayData = todaySnapshot.data();
+
+        if (todayData != null) {
+          final todaySessions = _getSessions(todayData);
+
+          if (todaySessions.isNotEmpty) {
+            return;
+          }
+        }
       }
 
-      if (activeSessions.docs.isNotEmpty) {
-        await yesterdayDocRef.set({
-          'dayStatus': 'Completed',
-        }, SetOptions(merge: true));
+      /*
+       * Check maximum session limit.
+       *
+       * Automatic midnight entry counts as
+       * one session for the new day.
+       */
+      final maxSessions = await _getMaxSessions();
+
+      if (maxSessions <= 0) {
+        return;
       }
+
+      /*
+       * Automatic entry exactly at 12:00 AM.
+       */
+      final automaticEntry = Timestamp.fromDate(todayStart);
+
+      final todaySessions = [
+        {
+          "sessionNo": 1,
+          "entryAt": automaticEntry,
+          "exitAt": null,
+          "autoEntry": true,
+          "autoExit": false,
+        },
+      ];
+
+      await todayDocument.set({
+        "libraryId": libraryId,
+        "date": _dateId(todayStart),
+        "status": "Present",
+
+        "entryAt": automaticEntry,
+        "exitAt": null,
+
+        "sessions": todaySessions,
+
+        "currentSession": 1,
+        "totalSessions": 1,
+
+        "autoEntry": true,
+        "autoExit": false,
+
+        "wifiName": "Vision",
+        "markedBy": "System",
+
+        "createdAt": FieldValue.serverTimestamp(),
+        "updatedAt": FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e) {
-      print("Error in checkAndProcessAutoExit: $e");
+      // Do not crash the Attendance screen if
+      // rollover checking fails.
+      //
+      // The student can still use manual
+      // attendance.
+      return;
     }
   }
 
-  /// MARK ATTENDANCE (New Session Entry)
-  Future<Map<String, dynamic>> markEntry(String studentLibraryId) async {
-    try {
-      // 1. Base Document Auto-Create karein (No more phantom docs!)
-      await _ensureStudentDocExists(studentLibraryId);
+  Future<DocumentSnapshot<Map<String, dynamic>>> getTodayAttendance(
+    String libraryId,
+  ) async {
+    final today = DateTime.now();
 
-      // 2. Pichle din ka auto-exit handle karein
-      await checkAndProcessAutoExit(studentLibraryId);
-
-      // 3. Settings fetch karein
-      final settings = await _settingsService.getSettings();
-      final dailyDocRef = _getDailyDocRef(studentLibraryId, _todayDateStr);
-
-      final dailyDoc = await dailyDocRef.get();
-      int totalCompleted = 0;
-
-      if (dailyDoc.exists && dailyDoc.data() != null) {
-        final data = dailyDoc.data() as Map<String, dynamic>;
-        totalCompleted = data['totalSessionsCompleted'] ?? 0;
-      }
-
-      // 4. Check active session
-      final openSessions = await dailyDocRef
-          .collection('sessions')
-          .where('exitAt', isNull: true)
-          .get();
-
-      if (openSessions.docs.isNotEmpty) {
-        return {
-          'success': false,
-          'message':
-              'Aapka ek active session pehle se chal raha hai. Pehle EXIT mark karein!',
-        };
-      }
-
-      // 5. Check daily max session limit
-      if (totalCompleted >= settings.maxSessionsPerDay) {
-        return {
-          'success': false,
-          'message':
-              'Aaj ki maximum session limit (${settings.maxSessionsPerDay}) poori ho chuki hai.',
-        };
-      }
-
-      int nextSessionNum = totalCompleted + 1;
-      String sessionId = "session_$nextSessionNum";
-
-      // 6. Daily Parent Document create/update karein
-      await dailyDocRef.set({
-        'date': _todayDateStr,
-        'studentLibraryId': studentLibraryId,
-        'totalSessionsCompleted': totalCompleted,
-        'dayStatus': 'In Progress',
-        'lastUpdated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      // 7. Session Sub-collection create karein
-      await dailyDocRef.collection('sessions').doc(sessionId).set({
-        'sessionNumber': nextSessionNum,
-        'entryAt': FieldValue.serverTimestamp(),
-        'exitAt': null,
-        'autoEntry': false,
-        'autoExit': false,
-      });
-
-      return {
-        'success': true,
-        'message': 'Attendance Marked! (Session $nextSessionNum Started)',
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Error marking attendance: $e'};
-    }
+    return _dayDocument(libraryId, today).get();
   }
 
-  /// MARK EXIT (Current Active Session Closing)
-  Future<Map<String, dynamic>> markExit(String studentLibraryId) async {
-    try {
-      final settings = await _settingsService.getSettings();
-      final dailyDocRef = _getDailyDocRef(studentLibraryId, _todayDateStr);
+  Future<List<Map<String, dynamic>>> getTodaySessions(String libraryId) async {
+    final snapshot = await getTodayAttendance(libraryId);
 
-      final openSessions = await dailyDocRef
-          .collection('sessions')
-          .where('exitAt', isNull: true)
-          .get();
-
-      if (openSessions.docs.isEmpty) {
-        return {
-          'success': false,
-          'message':
-              'Koi active session nahi mila jiska Exit mark kiya ja sake.',
-        };
-      }
-
-      final activeDoc = openSessions.docs.first;
-      int sessionNum = activeDoc.data()['sessionNumber'] ?? 1;
-
-      // Exit timestamp set karein
-      await activeDoc.reference.update({
-        'exitAt': FieldValue.serverTimestamp(),
-        'autoExit': false,
-      });
-
-      // Total completed sessions count update karein
-      bool isLastSession = sessionNum >= settings.maxSessionsPerDay;
-      await dailyDocRef.set({
-        'totalSessionsCompleted': sessionNum,
-        'dayStatus': isLastSession ? 'Completed' : 'In Progress',
-        'lastUpdated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      return {
-        'success': true,
-        'message': 'Exit Marked! (Session $sessionNum Completed)',
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Error marking exit: $e'};
+    if (!snapshot.exists) {
+      return [];
     }
+
+    final data = snapshot.data();
+
+    if (data == null) {
+      return [];
+    }
+
+    return _getSessions(data);
+  }
+
+  Future<bool> hasOpenSession(String libraryId) async {
+    final snapshot = await getTodayAttendance(libraryId);
+
+    if (!snapshot.exists) {
+      return false;
+    }
+
+    final data = snapshot.data();
+
+    if (data == null) {
+      return false;
+    }
+
+    return _hasOpenSession(data);
   }
 }

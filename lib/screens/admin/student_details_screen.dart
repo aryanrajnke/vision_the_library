@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../services/membership_service.dart';
 import 'edit_student_screen.dart';
 
-class StudentDetailsScreen extends StatelessWidget {
+class StudentDetailsScreen extends StatefulWidget {
   final String libraryId;
 
   const StudentDetailsScreen({super.key, required this.libraryId});
 
+  @override
+  State<StudentDetailsScreen> createState() => _StudentDetailsScreenState();
+}
+
+class _StudentDetailsScreenState extends State<StudentDetailsScreen> {
+  bool _membershipChecked = false;
+
   String _formatDate(dynamic value) {
-    if (value == null) return "-";
+    if (value == null) {
+      return "-";
+    }
 
     if (value is Timestamp) {
       final date = value.toDate();
@@ -23,17 +34,41 @@ class StudentDetailsScreen extends StatelessWidget {
   }
 
   String _getShifts(dynamic shiftData) {
-    if (shiftData is! Map) return "-";
+    if (shiftData is! Map) {
+      return "-";
+    }
 
     final shifts = Map<String, dynamic>.from(shiftData);
+
     final selectedShifts = <String>[];
 
-    if (shifts['morning'] == true) selectedShifts.add("Morning");
-    if (shifts['day'] == true) selectedShifts.add("Day");
-    if (shifts['evening'] == true) selectedShifts.add("Evening");
-    if (shifts['night'] == true) selectedShifts.add("Night");
+    if (shifts['morning'] == true) {
+      selectedShifts.add("Morning");
+    }
+
+    if (shifts['day'] == true) {
+      selectedShifts.add("Day");
+    }
+
+    if (shifts['evening'] == true) {
+      selectedShifts.add("Evening");
+    }
+
+    if (shifts['night'] == true) {
+      selectedShifts.add("Night");
+    }
 
     return selectedShifts.isEmpty ? "-" : selectedShifts.join(", ");
+  }
+
+  Future<void> _checkMembership() async {
+    if (_membershipChecked) {
+      return;
+    }
+
+    _membershipChecked = true;
+
+    await MembershipService.checkAndUpdateMembership(widget.libraryId);
   }
 
   @override
@@ -45,6 +80,7 @@ class StudentDetailsScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
+
         title: Text(
           "Student Details",
           style: GoogleFonts.poppins(
@@ -58,7 +94,7 @@ class StudentDetailsScreen extends StatelessWidget {
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('students')
-            .doc(libraryId)
+            .doc(widget.libraryId)
             .snapshots(),
 
         builder: (context, snapshot) {
@@ -86,17 +122,39 @@ class StudentDetailsScreen extends StatelessWidget {
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
 
+          // Check membership once when the
+          // student's details are opened.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+
+            _checkMembership();
+          });
+
           final name = data['name']?.toString() ?? "-";
-          final id = data['libraryId']?.toString() ?? libraryId;
+
+          final id = data['libraryId']?.toString() ?? widget.libraryId;
+
           final phone = data['phone']?.toString() ?? "-";
+
           final email = data['email']?.toString() ?? "-";
+
           final gender = data['gender']?.toString() ?? "-";
+
           final address = data['address']?.toString() ?? "-";
+
           final seat = data['seat']?.toString() ?? "-";
 
-          final membership = data['membershipStatus']?.toString() ?? "-";
+          final membership = data['membershipStatus']?.toString() ?? "Inactive";
 
           final shifts = _getShifts(data['shifts']);
+
+          // Valid Till is meaningful only
+          // when membership is Active.
+          final validTill = membership == "Active"
+              ? _formatDate(data['validTill'])
+              : "-";
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -106,8 +164,10 @@ class StudentDetailsScreen extends StatelessWidget {
                 CircleAvatar(
                   radius: 52,
                   backgroundColor: Colors.white24,
+
                   child: Icon(
                     gender == "Girl" ? Icons.person_2 : Icons.person,
+
                     color: Colors.white,
                     size: 62,
                   ),
@@ -118,6 +178,7 @@ class StudentDetailsScreen extends StatelessWidget {
                 Text(
                   name,
                   textAlign: TextAlign.center,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontSize: 23,
@@ -129,6 +190,7 @@ class StudentDetailsScreen extends StatelessWidget {
 
                 Text(
                   id,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white70,
                     fontSize: 14,
@@ -214,7 +276,7 @@ class StudentDetailsScreen extends StatelessWidget {
                     _detailRow(
                       Icons.event_available_outlined,
                       "Valid Till",
-                      _formatDate(data['validTill']),
+                      validTill,
                     ),
                   ],
                 ),
@@ -229,14 +291,27 @@ class StudentDetailsScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) =>
-                                  EditStudentScreen(libraryId: libraryId),
+                              builder: (context) => EditStudentScreen(
+                                libraryId: widget.libraryId,
+                              ),
                             ),
-                          );
+                          ).then((_) {
+                            // Reset the check so that
+                            // membership is checked again
+                            // after returning from Edit.
+                            _membershipChecked = false;
+
+                            if (mounted) {
+                              setState(() {});
+                            }
+                          });
                         },
+
                         icon: const Icon(Icons.edit_outlined),
+
                         label: Text(
                           "EDIT",
+
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                           ),
@@ -251,13 +326,18 @@ class StudentDetailsScreen extends StatelessWidget {
                         onPressed: () {
                           _showDeleteDialog(context);
                         },
+
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
+
                           foregroundColor: Colors.white,
                         ),
+
                         icon: const Icon(Icons.delete_outline),
+
                         label: Text(
                           "DELETE",
+
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                           ),
@@ -279,8 +359,10 @@ class StudentDetailsScreen extends StatelessWidget {
   Widget _sectionTitle(String title) {
     return Align(
       alignment: Alignment.centerLeft,
+
       child: Text(
         title,
+
         style: GoogleFonts.poppins(
           color: Colors.white,
           fontSize: 18,
@@ -293,12 +375,17 @@ class StudentDetailsScreen extends StatelessWidget {
   Widget _detailsCard({required List<Widget> children}) {
     return Container(
       width: double.infinity,
+
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 5),
+
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.10),
+
         borderRadius: BorderRadius.circular(20),
+
         border: Border.all(color: Colors.white24),
       ),
+
       child: Column(children: children),
     );
   }
@@ -306,8 +393,10 @@ class StudentDetailsScreen extends StatelessWidget {
   Widget _detailRow(IconData icon, String title, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
+
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
+
         children: [
           Icon(icon, color: Colors.white70, size: 22),
 
@@ -316,9 +405,11 @@ class StudentDetailsScreen extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+
               children: [
                 Text(
                   title,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white60,
                     fontSize: 12,
@@ -329,6 +420,7 @@ class StudentDetailsScreen extends StatelessWidget {
 
                 Text(
                   value,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontSize: 15,
@@ -374,6 +466,7 @@ class StudentDetailsScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.pop(dialogContext);
               },
+
               child: const Text("Cancel"),
             ),
 
@@ -382,12 +475,15 @@ class StudentDetailsScreen extends StatelessWidget {
                 try {
                   await FirebaseFirestore.instance
                       .collection('students')
-                      .doc(libraryId)
+                      .doc(widget.libraryId)
                       .delete();
 
-                  if (!context.mounted) return;
+                  if (!context.mounted) {
+                    return;
+                  }
 
                   Navigator.pop(dialogContext);
+
                   Navigator.pop(context);
 
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -397,7 +493,9 @@ class StudentDetailsScreen extends StatelessWidget {
                     ),
                   );
                 } catch (e) {
-                  if (!context.mounted) return;
+                  if (!context.mounted) {
+                    return;
+                  }
 
                   Navigator.pop(dialogContext);
 
@@ -412,6 +510,7 @@ class StudentDetailsScreen extends StatelessWidget {
 
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
+
                 foregroundColor: Colors.white,
               ),
 

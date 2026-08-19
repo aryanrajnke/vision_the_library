@@ -31,7 +31,9 @@ class PersonalInformationScreen extends StatelessWidget {
         "Dec",
       ];
 
-      return "${date.day} ${months[date.month - 1]} ${date.year}";
+      return "${date.day} "
+          "${months[date.month - 1]} "
+          "${date.year}";
     }
 
     return value.toString();
@@ -47,6 +49,7 @@ class PersonalInformationScreen extends StatelessWidget {
                 .collection('students')
                 .doc(libraryId)
                 .snapshots(),
+
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -56,6 +59,9 @@ class PersonalInformationScreen extends StatelessWidget {
                 return Center(
                   child: Text(
                     "Failed to load personal information",
+
+                    textAlign: TextAlign.center,
+
                     style: GoogleFonts.poppins(color: Colors.redAccent),
                   ),
                 );
@@ -65,6 +71,7 @@ class PersonalInformationScreen extends StatelessWidget {
                 return Center(
                   child: Text(
                     "Student not found",
+
                     style: GoogleFonts.poppins(color: Colors.white70),
                   ),
                 );
@@ -89,7 +96,9 @@ class PersonalInformationScreen extends StatelessWidget {
 
               return SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
+
                 padding: const EdgeInsets.all(20),
+
                 child: Column(
                   children: [
                     Row(
@@ -98,6 +107,7 @@ class PersonalInformationScreen extends StatelessWidget {
                           onPressed: () {
                             Navigator.pop(context);
                           },
+
                           icon: const Icon(
                             Icons.arrow_back,
                             color: Colors.white,
@@ -107,7 +117,9 @@ class PersonalInformationScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             "Personal Information",
+
                             textAlign: TextAlign.center,
+
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontSize: 20,
@@ -180,8 +192,10 @@ class PersonalInformationScreen extends StatelessWidget {
   Widget _buildInfoTile(IconData icon, String title, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
+
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
+
         children: [
           Icon(icon, color: Colors.white70, size: 22),
 
@@ -190,9 +204,11 @@ class PersonalInformationScreen extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+
               children: [
                 Text(
                   title,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white70,
                     fontSize: 13,
@@ -203,6 +219,7 @@ class PersonalInformationScreen extends StatelessWidget {
 
                 Text(
                   value,
+
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontSize: 16,

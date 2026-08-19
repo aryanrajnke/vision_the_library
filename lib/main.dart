@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:vision_the_library/screens/welcome_screen.dart';
+import 'package:flutter/cupertino.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,19 @@ class VisionTheLibraryApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Vision The Library',
       home: const WelcomeScreen(),
+      theme: ThemeData(
+        scaffoldBackgroundColor: const Color(0xff0F172A),
+
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+          },
+        ),
+      ),
     );
   }
 }

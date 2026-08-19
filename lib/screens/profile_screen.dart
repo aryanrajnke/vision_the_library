@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'personal_information_screen.dart';
 import 'library_information_screen.dart';
 import 'notice_board_screen.dart';
-import 'attendance_history_screen.dart';
-import 'welcome_screen.dart';
+import 'admin/student_attendance_history_screen.dart';
+import 'login_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   final String libraryId;
@@ -129,6 +129,7 @@ class ProfileScreen extends StatelessWidget {
                         Icons.person_2_outlined,
                         "Personal Information",
                         studentId,
+                        name,
                       ),
 
                       const Divider(color: Colors.white24, height: 1),
@@ -138,6 +139,7 @@ class ProfileScreen extends StatelessWidget {
                         Icons.badge_outlined,
                         "Library Information",
                         studentId,
+                        name,
                       ),
 
                       const Divider(color: Colors.white24, height: 1),
@@ -147,6 +149,7 @@ class ProfileScreen extends StatelessWidget {
                         Icons.campaign_outlined,
                         "Notice Board",
                         studentId,
+                        name,
                       ),
 
                       const Divider(color: Colors.white24, height: 1),
@@ -156,11 +159,18 @@ class ProfileScreen extends StatelessWidget {
                         Icons.history,
                         "Attendance History",
                         studentId,
+                        name,
                       ),
 
                       const Divider(color: Colors.white24, height: 1),
 
-                      profileTile(context, Icons.logout, "Logout", studentId),
+                      profileTile(
+                        context,
+                        Icons.logout,
+                        "Logout",
+                        studentId,
+                        name,
+                      ),
                     ],
                   ),
                 ),
@@ -202,6 +212,7 @@ class ProfileScreen extends StatelessWidget {
     IconData icon,
     String title,
     String studentId,
+    String name,
   ) {
     return InkWell(
       onTap: () {
@@ -209,10 +220,14 @@ class ProfileScreen extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  AttendanceHistoryScreen(studentLibraryId: studentId),
+              builder: (context) => StudentAttendanceHistoryScreen(
+                name: name,
+                libraryId: studentId,
+              ),
             ),
           );
+
+          return;
         }
 
         if (title == "Notice Board") {
@@ -279,7 +294,7 @@ class ProfileScreen extends StatelessWidget {
                         context,
 
                         MaterialPageRoute(
-                          builder: (context) => const WelcomeScreen(),
+                          builder: (context) => const LoginScreen(),
                         ),
 
                         (route) => false,

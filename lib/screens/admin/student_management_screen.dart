@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'add_student_screen.dart';
 import 'student_details_screen.dart';
+import '../../services/membership_service.dart';
 
 class StudentManagementScreen extends StatefulWidget {
   const StudentManagementScreen({super.key});
@@ -20,10 +21,47 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
   final TextEditingController searchController = TextEditingController();
 
+  // Students whose membership has already been checked
+  // during the current screen session.
+  final Set<String> _membershipCheckedIds = {};
+
+  // Prevent duplicate checks while one check is running.
+  final Set<String> _membershipCheckInProgress = {};
+
   @override
   void dispose() {
     searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkMemberships(List<QueryDocumentSnapshot> documents) async {
+    for (final document in documents) {
+      final data = document.data() as Map<String, dynamic>;
+
+      final libraryId = (data['libraryId'] ?? document.id).toString().trim();
+
+      if (libraryId.isEmpty) {
+        continue;
+      }
+
+      if (_membershipCheckedIds.contains(libraryId)) {
+        continue;
+      }
+
+      if (_membershipCheckInProgress.contains(libraryId)) {
+        continue;
+      }
+
+      _membershipCheckInProgress.add(libraryId);
+
+      try {
+        await MembershipService.checkAndUpdateMembership(libraryId);
+
+        _membershipCheckedIds.add(libraryId);
+      } finally {
+        _membershipCheckInProgress.remove(libraryId);
+      }
+    }
   }
 
   @override
@@ -78,6 +116,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: "search",
+
                 child: Row(
                   children: [
                     const Icon(Icons.search, color: Colors.white),
@@ -94,6 +133,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
               PopupMenuItem(
                 value: "add",
+
                 child: Row(
                   children: [
                     const Icon(Icons.person_add_alt_1, color: Colors.white),
@@ -110,6 +150,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
               PopupMenuItem(
                 value: "filter",
+
                 child: Row(
                   children: [
                     const Icon(Icons.filter_list, color: Colors.white),
@@ -135,8 +176,10 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
           if (showSearchBar)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 15, 20, 5),
+
               child: TextField(
                 controller: searchController,
+
                 autofocus: true,
 
                 style: GoogleFonts.poppins(color: Colors.white),
@@ -156,6 +199,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                     onPressed: () {
                       setState(() {
                         searchController.clear();
+
                         showSearchBar = false;
                       });
                     },
@@ -167,14 +211,16 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
 
                   fillColor: Colors.white.withValues(alpha: 0.10),
 
-                  border: OutlineInputBorder(
+                  enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(15),
+
                     borderSide: const BorderSide(color: Colors.white24),
                   ),
 
-                  enabledBorder: OutlineInputBorder(
+                  focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(15),
-                    borderSide: const BorderSide(color: Colors.white24),
+
+                    borderSide: const BorderSide(color: Colors.blue),
                   ),
                 ),
               ),
@@ -195,9 +241,13 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(20),
+
                       child: Text(
-                        "Failed to load students.\n${snapshot.error}",
+                        "Failed to load students.\n"
+                        "${snapshot.error}",
+
                         textAlign: TextAlign.center,
+
                         style: GoogleFonts.poppins(color: Colors.redAccent),
                       ),
                     ),
@@ -208,14 +258,37 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                   return Center(
                     child: Text(
                       "No students found",
+
                       style: GoogleFonts.poppins(color: Colors.white70),
                     ),
                   );
                 }
 
+                final documents = snapshot.data!.docs;
+
+                if (documents.isEmpty) {
+                  return Center(
+                    child: Text(
+                      "No students found",
+
+                      style: GoogleFonts.poppins(color: Colors.white70),
+                    ),
+                  );
+                }
+
+                // Check membership expiry once
+                // for each student in this screen session.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) {
+                    return;
+                  }
+
+                  _checkMemberships(documents);
+                });
+
                 final searchText = searchController.text.trim().toLowerCase();
 
-                final students = snapshot.data!.docs.where((document) {
+                final students = documents.where((document) {
                   final data = document.data() as Map<String, dynamic>;
 
                   final name = (data['name'] ?? '').toString().toLowerCase();
@@ -242,6 +315,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                   return Center(
                     child: Text(
                       "No students found",
+
                       style: GoogleFonts.poppins(
                         color: Colors.white70,
                         fontSize: 16,
@@ -328,6 +402,8 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
     required String status,
     required String gender,
   }) {
+    final bool isActive = status == "Active";
+
     return Container(
       width: double.infinity,
 
@@ -428,9 +504,7 @@ class _StudentManagementScreenState extends State<StudentManagementScreen> {
                       "Status: $status",
 
                       style: GoogleFonts.poppins(
-                        color: status == "Active"
-                            ? Colors.greenAccent
-                            : Colors.redAccent,
+                        color: isActive ? Colors.greenAccent : Colors.redAccent,
 
                         fontSize: 13,
 

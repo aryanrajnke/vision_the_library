@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AddStudentScreen extends StatefulWidget {
@@ -18,17 +18,22 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController addressController = TextEditingController();
   final TextEditingController seatController = TextEditingController();
+
   String selectedSeatPrefix = "B-";
   String? selectedGender;
+
   bool morningShift = false;
   bool dayShift = false;
   bool eveningShift = false;
   bool nightShift = false;
+
   String selectedMembership = "Active";
 
   DateTime? dateOfBirth;
   DateTime? joiningDate;
   DateTime? validTill;
+
+  bool isSaving = false;
 
   @override
   void dispose() {
@@ -42,6 +47,32 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
     super.dispose();
   }
 
+  DateTime _todayOnly() {
+    final now = DateTime.now();
+
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  bool _isValidMembershipDate() {
+    if (selectedMembership != "Active") {
+      return true;
+    }
+
+    if (validTill == null) {
+      return false;
+    }
+
+    final today = _todayOnly();
+
+    final selectedDate = DateTime(
+      validTill!.year,
+      validTill!.month,
+      validTill!.day,
+    );
+
+    return !selectedDate.isBefore(today);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -51,6 +82,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
+
         title: Text(
           "Add Student",
           style: GoogleFonts.poppins(
@@ -66,6 +98,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+
           children: [
             _sectionTitle("Personal Information"),
 
@@ -122,8 +155,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               title: "Date of Birth",
               date: dateOfBirth,
               icon: Icons.cake_outlined,
+
               onTap: () async {
-                final selectedDate = await _selectDate(context);
+                final selectedDate = await _selectDate(
+                  context,
+                  initialDate: dateOfBirth,
+                  firstDate: DateTime(1950),
+                  lastDate: DateTime.now(),
+                );
 
                 if (selectedDate != null) {
                   setState(() {
@@ -138,6 +177,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
             _sectionTitle("Library Information"),
 
             const SizedBox(height: 15),
+
             _textField(
               controller: libraryIdController,
               label: "Library ID",
@@ -167,22 +207,31 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               children: [
                 SizedBox(
                   width: 100,
+
                   child: DropdownButtonFormField<String>(
                     initialValue: selectedSeatPrefix,
+
                     dropdownColor: const Color(0xff1E293B),
+
                     style: GoogleFonts.poppins(color: Colors.white),
+
                     decoration: InputDecoration(
                       filled: true,
+
                       fillColor: Colors.white.withValues(alpha: 0.10),
+
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
+
                         borderSide: const BorderSide(color: Colors.white24),
                       ),
                     ),
+
                     items: const [
                       DropdownMenuItem(value: "B-", child: Text("B-")),
                       DropdownMenuItem(value: "G-", child: Text("G-")),
                     ],
+
                     onChanged: (value) {
                       setState(() {
                         selectedSeatPrefix = value ?? "B-";
@@ -196,14 +245,22 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
                 Expanded(
                   child: TextField(
                     controller: seatController,
+
                     keyboardType: TextInputType.number,
+
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+
                     style: GoogleFonts.poppins(color: Colors.white),
+
                     decoration: InputDecoration(
                       labelText: "Seat Number",
+
                       labelStyle: const TextStyle(color: Colors.white70),
+
                       filled: true,
+
                       fillColor: Colors.white.withValues(alpha: 0.10),
+
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
                       ),
@@ -217,14 +274,20 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
             Container(
               width: double.infinity,
+
               padding: const EdgeInsets.all(15),
+
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.10),
+
                 borderRadius: BorderRadius.circular(15),
+
                 border: Border.all(color: Colors.white24),
               ),
+
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+
                 children: [
                   Row(
                     children: [
@@ -232,9 +295,12 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
                         Icons.schedule_outlined,
                         color: Colors.white70,
                       ),
+
                       const SizedBox(width: 12),
+
                       Text(
                         "Select Shift",
+
                         style: GoogleFonts.poppins(
                           color: Colors.white70,
                           fontSize: 15,
@@ -247,11 +313,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
                   CheckboxListTile(
                     value: morningShift,
+
                     title: const Text(
                       "Morning",
                       style: TextStyle(color: Colors.white),
                     ),
+
                     contentPadding: EdgeInsets.zero,
+
                     onChanged: (value) {
                       setState(() {
                         morningShift = value ?? false;
@@ -261,11 +330,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
                   CheckboxListTile(
                     value: dayShift,
+
                     title: const Text(
                       "Day",
                       style: TextStyle(color: Colors.white),
                     ),
+
                     contentPadding: EdgeInsets.zero,
+
                     onChanged: (value) {
                       setState(() {
                         dayShift = value ?? false;
@@ -275,11 +347,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
                   CheckboxListTile(
                     value: eveningShift,
+
                     title: const Text(
                       "Evening",
                       style: TextStyle(color: Colors.white),
                     ),
+
                     contentPadding: EdgeInsets.zero,
+
                     onChanged: (value) {
                       setState(() {
                         eveningShift = value ?? false;
@@ -289,11 +364,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
 
                   CheckboxListTile(
                     value: nightShift,
+
                     title: const Text(
                       "Night",
                       style: TextStyle(color: Colors.white),
                     ),
+
                     contentPadding: EdgeInsets.zero,
+
                     onChanged: (value) {
                       setState(() {
                         nightShift = value ?? false;
@@ -310,8 +388,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               title: "Joining Date",
               date: joiningDate,
               icon: Icons.calendar_today_outlined,
+
               onTap: () async {
-                final selectedDate = await _selectDate(context);
+                final selectedDate = await _selectDate(
+                  context,
+                  initialDate: joiningDate,
+                  firstDate: DateTime(1950),
+                  lastDate: DateTime(2100),
+                );
 
                 if (selectedDate != null) {
                   setState(() {
@@ -327,131 +411,69 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               value: selectedMembership,
               label: "Membership Status",
               icon: Icons.verified_user_outlined,
+
               items: const ["Active", "Inactive"],
+
               onChanged: (value) {
                 setState(() {
                   selectedMembership = value ?? "Active";
+
+                  // Inactive membership
+                  // must not have a Valid Till date.
+                  if (selectedMembership == "Inactive") {
+                    validTill = null;
+                  }
                 });
               },
             ),
 
-            const SizedBox(height: 15),
+            // Valid Till is shown ONLY for Active membership.
+            if (selectedMembership == "Active") ...[
+              const SizedBox(height: 15),
 
-            _dateField(
-              title: "Valid Till",
-              date: validTill,
-              icon: Icons.event_available_outlined,
-              onTap: () async {
-                final selectedDate = await _selectDate(context);
+              _dateField(
+                title: "Valid Till",
+                date: validTill,
+                icon: Icons.event_available_outlined,
 
-                if (selectedDate != null) {
-                  setState(() {
-                    validTill = selectedDate;
-                  });
-                }
-              },
-            ),
+                onTap: () async {
+                  final selectedDate = await _selectDate(
+                    context,
+                    initialDate: validTill ?? DateTime.now(),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime(2100),
+                  );
+
+                  if (selectedDate != null) {
+                    setState(() {
+                      validTill = selectedDate;
+                    });
+                  }
+                },
+              ),
+            ],
 
             const SizedBox(height: 30),
 
             SizedBox(
               width: double.infinity,
               height: 55,
+
               child: ElevatedButton.icon(
-                onPressed: () async {
-                  final String libraryId = libraryIdController.text
-                      .trim()
-                      .toUpperCase();
+                onPressed: isSaving ? null : _addStudent,
 
-                  if (nameController.text.trim().isEmpty ||
-                      libraryId.isEmpty ||
-                      pinController.text.trim().length != 4 ||
-                      selectedGender == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          "Please fill all required fields correctly",
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
+                icon: isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
 
-                  try {
-                    final studentRef = FirebaseFirestore.instance
-                        .collection('students')
-                        .doc(libraryId);
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.person_add_alt_1),
 
-                    final existingStudent = await studentRef.get();
-
-                    if (existingStudent.exists) {
-                      if (!context.mounted) return;
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("This Library ID already exists"),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-
-                    await studentRef.set({
-                      'name': nameController.text.trim(),
-                      'libraryId': libraryId,
-                      'pin': pinController.text.trim(),
-                      'phone': phoneController.text.trim(),
-                      'email': emailController.text.trim(),
-                      'address': addressController.text.trim(),
-                      'gender': selectedGender,
-                      'dateOfBirth': dateOfBirth != null
-                          ? Timestamp.fromDate(dateOfBirth!)
-                          : null,
-                      'seatPrefix': selectedSeatPrefix,
-                      'seatNumber': seatController.text.trim(),
-                      'seat':
-                          '$selectedSeatPrefix${seatController.text.trim()}',
-                      'shifts': {
-                        'morning': morningShift,
-                        'day': dayShift,
-                        'evening': eveningShift,
-                        'night': nightShift,
-                      },
-                      'joiningDate': joiningDate != null
-                          ? Timestamp.fromDate(joiningDate!)
-                          : null,
-                      'membershipStatus': selectedMembership,
-                      'validTill': validTill != null
-                          ? Timestamp.fromDate(validTill!)
-                          : null,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-
-                    if (!context.mounted) return;
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Student Added Successfully"),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-
-                    Navigator.pop(context);
-                  } catch (e) {
-                    if (!context.mounted) return;
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text("Failed to add student: $e"),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.person_add_alt_1),
                 label: Text(
-                  "ADD STUDENT",
+                  isSaving ? "ADDING..." : "ADD STUDENT",
+
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -467,9 +489,141 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
     );
   }
 
+  Future<void> _addStudent() async {
+    final name = nameController.text.trim();
+
+    final libraryId = libraryIdController.text.trim().toUpperCase();
+
+    final pin = pinController.text.trim();
+
+    // Basic required validation.
+    if (name.isEmpty ||
+        libraryId.isEmpty ||
+        pin.length != 4 ||
+        selectedGender == null) {
+      _showMessage("Please fill all required fields correctly", Colors.red);
+
+      return;
+    }
+
+    // Active membership requires Valid Till.
+    if (selectedMembership == "Active" && validTill == null) {
+      _showMessage(
+        "Please select Valid Till date for Active membership",
+        Colors.red,
+      );
+
+      return;
+    }
+
+    // Active membership cannot have an expired date.
+    if (!_isValidMembershipDate()) {
+      _showMessage("Valid Till date cannot be before today", Colors.red);
+
+      return;
+    }
+
+    // Inactive membership must not contain a date.
+    if (selectedMembership == "Inactive") {
+      validTill = null;
+    }
+
+    setState(() {
+      isSaving = true;
+    });
+
+    try {
+      final studentRef = FirebaseFirestore.instance
+          .collection('students')
+          .doc(libraryId);
+
+      final existingStudent = await studentRef.get();
+
+      if (existingStudent.exists) {
+        if (!mounted) return;
+
+        _showMessage("This Library ID already exists", Colors.red);
+
+        setState(() {
+          isSaving = false;
+        });
+
+        return;
+      }
+
+      await studentRef.set({
+        'name': name,
+
+        'libraryId': libraryId,
+
+        'pin': pin,
+
+        'phone': phoneController.text.trim(),
+
+        'email': emailController.text.trim(),
+
+        'address': addressController.text.trim(),
+
+        'gender': selectedGender,
+
+        'dateOfBirth': dateOfBirth != null
+            ? Timestamp.fromDate(dateOfBirth!)
+            : null,
+
+        'seatPrefix': selectedSeatPrefix,
+
+        'seatNumber': seatController.text.trim(),
+
+        'seat': '$selectedSeatPrefix${seatController.text.trim()}',
+
+        'shifts': {
+          'morning': morningShift,
+          'day': dayShift,
+          'evening': eveningShift,
+          'night': nightShift,
+        },
+
+        'joiningDate': joiningDate != null
+            ? Timestamp.fromDate(joiningDate!)
+            : null,
+
+        'membershipStatus': selectedMembership,
+
+        // Inactive → null
+        // Active → selected Valid Till
+        'validTill': selectedMembership == "Active" && validTill != null
+            ? Timestamp.fromDate(validTill!)
+            : null,
+
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      _showMessage("Student Added Successfully", Colors.green);
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isSaving = false;
+      });
+
+      _showMessage("Failed to add student: $e", Colors.red);
+    }
+  }
+
+  void _showMessage(String message, Color color) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+  }
+
   Widget _sectionTitle(String title) {
     return Text(
       title,
+
       style: GoogleFonts.poppins(
         color: Colors.white,
         fontSize: 18,
@@ -487,21 +641,33 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
   }) {
     return TextField(
       controller: controller,
+
       keyboardType: keyboardType,
+
       inputFormatters: inputFormatters,
+
       style: GoogleFonts.poppins(color: Colors.white),
+
       decoration: InputDecoration(
         labelText: label,
+
         labelStyle: GoogleFonts.poppins(color: Colors.white70),
+
         prefixIcon: Icon(icon, color: Colors.white70),
+
         filled: true,
+
         fillColor: Colors.white.withValues(alpha: 0.10),
+
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
+
           borderSide: const BorderSide(color: Colors.white24),
         ),
+
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
+
           borderSide: const BorderSide(color: Colors.blue, width: 2),
         ),
       ),
@@ -517,27 +683,41 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
   }) {
     return DropdownButtonFormField<String>(
       initialValue: value,
+
       dropdownColor: const Color(0xff1E293B),
+
       style: GoogleFonts.poppins(color: Colors.white),
+
       iconEnabledColor: Colors.white70,
+
       decoration: InputDecoration(
         labelText: label,
+
         labelStyle: GoogleFonts.poppins(color: Colors.white70),
+
         prefixIcon: Icon(icon, color: Colors.white70),
+
         filled: true,
+
         fillColor: Colors.white.withValues(alpha: 0.10),
+
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
+
           borderSide: const BorderSide(color: Colors.white24),
         ),
+
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
+
           borderSide: const BorderSide(color: Colors.blue, width: 2),
         ),
       ),
+
       items: items.map((item) {
         return DropdownMenuItem<String>(value: item, child: Text(item));
       }).toList(),
+
       onChanged: onChanged,
     );
   }
@@ -550,15 +730,22 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
   }) {
     return InkWell(
       onTap: onTap,
+
       borderRadius: BorderRadius.circular(15),
+
       child: Container(
         width: double.infinity,
+
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 18),
+
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.10),
+
           borderRadius: BorderRadius.circular(15),
+
           border: Border.all(color: Colors.white24),
         ),
+
         child: Row(
           children: [
             Icon(icon, color: Colors.white70),
@@ -569,11 +756,13 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               child: Text(
                 date == null
                     ? title
-                    : "${date.day.toString().padLeft(2, '0')}/"
-                          "${date.month.toString().padLeft(2, '0')}/"
-                          "${date.year}",
+                    : '${date.day.toString().padLeft(2, '0')}/'
+                          '${date.month.toString().padLeft(2, '0')}/'
+                          '${date.year}',
+
                 style: GoogleFonts.poppins(
                   color: date == null ? Colors.white70 : Colors.white,
+
                   fontSize: 15,
                 ),
               ),
@@ -586,12 +775,36 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
     );
   }
 
-  Future<DateTime?> _selectDate(BuildContext context) async {
+  Future<DateTime?> _selectDate(
+    BuildContext context, {
+    DateTime? initialDate,
+    DateTime? firstDate,
+    DateTime? lastDate,
+  }) async {
+    final today = _todayOnly();
+
+    DateTime safeInitial = initialDate ?? today;
+
+    final safeFirst = firstDate ?? DateTime(1950);
+
+    final safeLast = lastDate ?? DateTime(2100);
+
+    if (safeInitial.isBefore(safeFirst)) {
+      safeInitial = safeFirst;
+    }
+
+    if (safeInitial.isAfter(safeLast)) {
+      safeInitial = safeLast;
+    }
+
     return showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(1950),
-      lastDate: DateTime(2100),
+
+      initialDate: safeInitial,
+
+      firstDate: safeFirst,
+
+      lastDate: safeLast,
     );
   }
 }
@@ -604,6 +817,7 @@ class UpperCaseTextFormatter extends TextInputFormatter {
   ) {
     return TextEditingValue(
       text: newValue.text.toUpperCase(),
+
       selection: newValue.selection,
     );
   }

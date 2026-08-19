@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../services/session_service.dart';
 import 'dashboard_screen.dart';
 import 'admin/admin_login_screen.dart';
 
@@ -28,40 +31,51 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // ============================================================
+  // STUDENT LOGIN
+  // ============================================================
+
   Future<void> _loginStudent() async {
     final String libraryId = libraryIdController.text.trim().toUpperCase();
 
     final String pin = pinController.text.trim();
 
     if (libraryId.isEmpty || pin.length != 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Please enter a valid Library ID and 4-digit PIN"),
-          backgroundColor: Colors.red,
-        ),
+      _showMessage(
+        'Please enter a valid Library ID and 4-digit PIN',
+        Colors.red,
       );
       return;
     }
+
+    if (!mounted) return;
 
     setState(() {
       isLoading = true;
     });
 
     try {
+      // --------------------------------------------------------
+      // IMPORTANT:
+      // Always use Firebase SERVER.
+      //
+      // Cached/offline Firebase data must NOT be used for login.
+      // --------------------------------------------------------
+
       final studentDocument = await FirebaseFirestore.instance
           .collection('students')
           .doc(libraryId)
-          .get();
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
 
+      // --------------------------------------------------------
+      // STUDENT NOT FOUND
+      // --------------------------------------------------------
+
       if (!studentDocument.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Invalid Library ID or PIN"),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showMessage('Invalid Library ID or PIN', Colors.red);
 
         setState(() {
           isLoading = false;
@@ -70,17 +84,26 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final studentData = studentDocument.data()!;
+      final studentData = studentDocument.data();
 
-      final String savedPin = studentData['pin']?.toString() ?? "";
+      if (studentData == null) {
+        _showMessage('Unable to load student information.', Colors.red);
+
+        setState(() {
+          isLoading = false;
+        });
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // CHECK PIN
+      // --------------------------------------------------------
+
+      final String savedPin = studentData['pin']?.toString() ?? '';
 
       if (savedPin != pin) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Invalid Library ID or PIN"),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showMessage('Invalid Library ID or PIN', Colors.red);
 
         setState(() {
           isLoading = false;
@@ -88,6 +111,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
         return;
       }
+
+      // --------------------------------------------------------
+      // SAVE SESSION ONLY AFTER SUCCESSFUL SERVER LOGIN
+      // --------------------------------------------------------
+
+      await SessionService.saveStudentSession(libraryId);
+
+      if (!mounted) return;
+
+      // --------------------------------------------------------
+      // OPEN DASHBOARD
+      // --------------------------------------------------------
 
       Navigator.pushReplacement(
         context,
@@ -95,21 +130,79 @@ class _LoginScreenState extends State<LoginScreen> {
           builder: (context) => DashboardScreen(libraryId: libraryId),
         ),
       );
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+
+      String message;
+
+      switch (e.code) {
+        case 'unavailable':
+          message = 'Please connect to the internet.';
+          break;
+
+        case 'permission-denied':
+          message = 'Firebase permission denied.';
+          break;
+
+        case 'deadline-exceeded':
+          message = 'Connection timed out. Please check your internet.';
+          break;
+
+        case 'failed-precondition':
+          message = 'Unable to connect to Firebase.';
+          break;
+
+        default:
+          message = 'Unable to connect to Firebase.';
+      }
+
+      _showMessage(message, Colors.red);
+
+      setState(() {
+        isLoading = false;
+      });
+    } on TimeoutException {
+      if (!mounted) return;
+
+      _showMessage(
+        'Connection timed out. Please check your internet.',
+        Colors.red,
+      );
+
+      setState(() {
+        isLoading = false;
+      });
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Login failed: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showMessage('Please connect to the internet.', Colors.red);
 
       setState(() {
         isLoading = false;
       });
     }
   }
+
+  // ============================================================
+  // MESSAGE
+  // ============================================================
+
+  void _showMessage(String message, Color color) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message, style: GoogleFonts.poppins()),
+          backgroundColor: color,
+        ),
+      );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +227,9 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
 
               children: [
+                // ==================================================
+                // ADMIN BUTTON
+                // ==================================================
                 Align(
                   alignment: Alignment.topRight,
 
@@ -155,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
 
                     label: Text(
-                      "Admin",
+                      'Admin',
                       style: GoogleFonts.poppins(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -166,13 +262,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 25),
 
+                // ==================================================
+                // LIBRARY ICON
+                // ==================================================
                 const Icon(Icons.local_library, color: Colors.white, size: 90),
 
                 const SizedBox(height: 20),
 
+                // ==================================================
+                // TITLE
+                // ==================================================
                 Center(
                   child: Text(
-                    "Vision The Library",
+                    'Vision The Library',
                     textAlign: TextAlign.center,
 
                     style: GoogleFonts.poppins(
@@ -186,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
 
                 Text(
-                  "Student Login",
+                  'Student Login',
 
                   style: GoogleFonts.poppins(
                     color: Colors.white70,
@@ -196,6 +298,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 90),
 
+                // ==================================================
+                // LIBRARY ID
+                // ==================================================
                 TextField(
                   controller: libraryIdController,
 
@@ -204,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   inputFormatters: [UpperCaseTextFormatter()],
 
                   decoration: InputDecoration(
-                    hintText: "Library ID",
+                    hintText: 'Library ID',
 
                     prefixIcon: const Icon(Icons.badge),
 
@@ -213,7 +318,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
-
                       borderSide: BorderSide.none,
                     ),
                   ),
@@ -221,6 +325,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
+                // ==================================================
+                // PIN
+                // ==================================================
                 TextField(
                   controller: pinController,
 
@@ -230,12 +337,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
-
                     LengthLimitingTextInputFormatter(4),
                   ],
 
                   decoration: InputDecoration(
-                    hintText: "4-Digit PIN",
+                    hintText: '4-Digit PIN',
 
                     prefixIcon: const Icon(Icons.pin),
 
@@ -256,7 +362,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(15),
-
                       borderSide: BorderSide.none,
                     ),
                   ),
@@ -264,6 +369,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 30),
 
+                // ==================================================
+                // LOGIN BUTTON
+                // ==================================================
                 SizedBox(
                   width: double.infinity,
                   height: 55,
@@ -273,7 +381,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
-
                       foregroundColor: Colors.blue,
 
                       shape: RoundedRectangleBorder(
@@ -289,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2.5),
                           )
                         : Text(
-                            "LOGIN",
+                            'LOGIN',
 
                             style: GoogleFonts.poppins(
                               fontSize: 18,
@@ -305,8 +412,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
+                // ==================================================
+                // FOOTER
+                // ==================================================
                 Text(
-                  "© Vision The Library",
+                  '© Vision The Library',
 
                   style: GoogleFonts.poppins(
                     color: Colors.white60,
@@ -317,7 +427,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
 
                 Text(
-                  "Knowledge Beyond Limits",
+                  'Knowledge Beyond Limits',
 
                   style: GoogleFonts.poppins(
                     color: Colors.white38,
@@ -334,6 +444,10 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+// ============================================================
+// UPPERCASE FORMATTER
+// ============================================================
 
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override

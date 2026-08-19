@@ -203,7 +203,7 @@ class LibraryInformationScreen extends StatelessWidget {
                           _buildInfoTile(
                             Icons.fact_check,
                             "Attendance Mode",
-                            "QR + Wi-Fi Verification",
+                            "Wi-Fi Verification",
                           ),
                         ],
                       ),

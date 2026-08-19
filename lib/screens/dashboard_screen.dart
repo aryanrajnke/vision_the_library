@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vision_the_library/services/attendance_service.dart';
+import 'package:vision_the_library/services/membership_service.dart';
+
 import '../../theme/app_theme.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/gradient_background.dart';
@@ -18,200 +20,426 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  bool _membershipChecked = false;
+
+  // ============================================================
+  // DATE
+  // ============================================================
+
+  String _todayId() {
+    final now = DateTime.now();
+
+    return '${now.year}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+  }
+
+  // ============================================================
+  // DATE FORMAT
+  // ============================================================
+
   String _formatDate(dynamic value) {
-    if (value == null) return "-";
+    if (value == null) return '-';
 
     if (value is Timestamp) {
       final date = value.toDate();
 
       const months = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
 
-      return "${date.day} ${months[date.month - 1]} ${date.year}";
+      return '${date.day} '
+          '${months[date.month - 1]} '
+          '${date.year}';
     }
 
     return value.toString();
   }
 
+  // ============================================================
+  // SHIFTS
+  // ============================================================
+
   String _getShifts(dynamic shiftData) {
-    if (shiftData is! Map) return "-";
+    if (shiftData is! Map) return '-';
 
     final shifts = Map<String, dynamic>.from(shiftData);
+
     final selectedShifts = <String>[];
 
     if (shifts['morning'] == true) {
-      selectedShifts.add("Morning");
+      selectedShifts.add('Morning');
     }
 
     if (shifts['day'] == true) {
-      selectedShifts.add("Day");
+      selectedShifts.add('Day');
     }
 
     if (shifts['evening'] == true) {
-      selectedShifts.add("Evening");
+      selectedShifts.add('Evening');
     }
 
     if (shifts['night'] == true) {
-      selectedShifts.add("Night");
+      selectedShifts.add('Night');
     }
 
     if (selectedShifts.isEmpty) {
-      return "-";
+      return '-';
     }
 
-    return selectedShifts.join(", ");
+    return selectedShifts.join(', ');
   }
 
-  String _todayId() {
-    final now = DateTime.now();
-
-    return "${now.year}-"
-        "${now.month.toString().padLeft(2, '0')}-"
-        "${now.day.toString().padLeft(2, '0')}";
-  }
+  // ============================================================
+  // INIT
+  // ============================================================
 
   @override
   void initState() {
     super.initState();
-    // Dashboard खुलते ही ऑटो-अटेंडेंस चेक होगा
-    AttendanceService().checkAndProcessAutoExit(widget.libraryId);
+
+    AttendanceService().checkPreviousAttendance(widget.libraryId);
   }
+
+  // ============================================================
+  // MEMBERSHIP
+  // ============================================================
+
+  Future<void> _checkMembership() async {
+    if (_membershipChecked) {
+      return;
+    }
+
+    _membershipChecked = true;
+
+    await MembershipService.checkAndUpdateMembership(widget.libraryId);
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: GradientBackground(
-        child: SafeArea(
-          child: StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('students')
-                .doc(widget.libraryId)
-                .snapshots(),
+    return PopScope(
+      // Dashboard se Back karne par app close hoga.
+      // Session logout nahi hoga.
+      canPop: true,
 
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+      onPopInvokedWithResult: (didPop, result) {
+        // Intentionally empty.
+        //
+        // SessionService.logout() yahan call nahi karna hai.
+      },
 
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text(
-                    "Failed to load student data",
-                    style: GoogleFonts.poppins(color: Colors.white),
-                  ),
-                );
-              }
+      child: Scaffold(
+        body: GradientBackground(
+          child: SafeArea(
+            child: StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('students')
+                  .doc(widget.libraryId)
+                  .snapshots(),
 
-              if (!snapshot.hasData || !snapshot.data!.exists) {
-                return Center(
-                  child: Text(
-                    "Student not found",
-                    style: GoogleFonts.poppins(color: Colors.white),
-                  ),
-                );
-              }
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              final data = snapshot.data!.data() as Map<String, dynamic>;
-
-              final String name = data['name']?.toString() ?? "Student";
-
-              final String studentId =
-                  data['libraryId']?.toString() ?? widget.libraryId;
-
-              final String seat = data['seat']?.toString() ?? "-";
-
-              final String membership =
-                  data['membershipStatus']?.toString() ?? "-";
-
-              final String gender = data['gender']?.toString() ?? "";
-
-              final String shifts = _getShifts(data['shifts']);
-
-              final String validTill = _formatDate(data['validTill']);
-
-              return SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-
-                  children: [
-                    const SizedBox(height: 20),
-
-                    _buildHeader(context, studentId),
-
-                    const SizedBox(height: 18),
-
-                    _buildProfileSection(
-                      name: name,
-                      studentId: studentId,
-                      gender: gender,
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Failed to load student data',
+                      style: GoogleFonts.poppins(color: Colors.white),
                     ),
+                  );
+                }
 
-                    const SizedBox(height: 30),
-
-                    _buildInfoCard(
-                      libraryId: studentId,
-                      shift: shifts,
-                      seat: seat,
-                      membership: membership,
-                      validTill: validTill,
-                      studentId: studentId,
+                if (!snapshot.hasData || !snapshot.data!.exists) {
+                  return Center(
+                    child: Text(
+                      'Student not found',
+                      style: GoogleFonts.poppins(color: Colors.white),
                     ),
+                  );
+                }
 
-                    const SizedBox(height: 30),
+                final data = snapshot.data!.data() as Map<String, dynamic>;
 
-                    SizedBox(
-                      width: double.infinity,
-                      height: 55,
+                // ------------------------------------------------
+                // MEMBERSHIP CHECK
+                // ------------------------------------------------
 
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  AttendanceScreen(studentLibraryId: studentId),
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+
+                  _checkMembership();
+                });
+
+                final String name = data['name']?.toString() ?? 'Student';
+
+                final String studentId =
+                    data['libraryId']?.toString() ?? widget.libraryId;
+
+                final String seat = data['seat']?.toString() ?? '-';
+
+                final String membership =
+                    data['membershipStatus']?.toString() ?? 'Inactive';
+
+                final String gender = data['gender']?.toString() ?? '';
+
+                final String shifts = _getShifts(data['shifts']);
+
+                final String validTill = membership == 'Active'
+                    ? _formatDate(data['validTill'])
+                    : '-';
+
+                return SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+
+                    children: [
+                      const SizedBox(height: 20),
+
+                      // ==================================================
+                      // HEADER
+                      // ==================================================
+                      _buildHeader(context, studentId),
+
+                      const SizedBox(height: 18),
+
+                      // ==================================================
+                      // PROFILE
+                      // ==================================================
+                      _buildProfileSection(
+                        name: name,
+                        studentId: studentId,
+                        gender: gender,
+                      ),
+
+                      const SizedBox(height: 25),
+
+                      // ==================================================
+                      // DASHBOARD LIVE STATS
+                      // ==================================================
+                      _buildDashboardStats(),
+
+                      const SizedBox(height: 25),
+
+                      // ==================================================
+                      // STUDENT INFO
+                      // ==================================================
+                      _buildInfoCard(
+                        libraryId: studentId,
+                        shift: shifts,
+                        seat: seat,
+                        membership: membership,
+                        validTill: validTill,
+                        studentId: studentId,
+                      ),
+
+                      const SizedBox(height: 30),
+
+                      // ==================================================
+                      // ATTENDANCE BUTTON
+                      // ==================================================
+                      SizedBox(
+                        width: double.infinity,
+                        height: 55,
+
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    AttendanceScreen(libraryId: studentId),
+                              ),
+                            );
+                          },
+
+                          icon: const Icon(Icons.fact_check),
+
+                          label: Text(
+                            'Attendance',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
-                          );
-                        },
-
-                        icon: const Icon(Icons.fact_check),
-
-                        label: Text(
-                          "Attendance",
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    ),
 
-                    const SizedBox(height: 30),
-                  ],
-                ),
-              );
-            },
+                      const SizedBox(height: 30),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
     );
   }
+
+  // ============================================================
+  // DASHBOARD STATS
+  // ============================================================
+
+  Widget _buildDashboardStats() {
+    return Row(
+      children: [
+        Expanded(child: _buildTotalStudentsCard()),
+
+        const SizedBox(width: 14),
+
+        Expanded(child: _buildPresentTodayCard()),
+      ],
+    );
+  }
+
+  // ============================================================
+  // TOTAL STUDENTS
+  // ============================================================
+
+  Widget _buildTotalStudentsCard() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('students').snapshots(),
+
+      builder: (context, snapshot) {
+        String value = '—';
+
+        if (snapshot.hasData) {
+          value = snapshot.data!.docs.length.toString();
+        }
+
+        return _statCard(
+          icon: Icons.groups_outlined,
+          title: 'Total Students',
+          value: value,
+          iconColor: Colors.blueAccent,
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // PRESENT TODAY
+  // ============================================================
+
+  Widget _buildPresentTodayCard() {
+    final today = _todayId();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collectionGroup('days')
+          .where('date', isEqualTo: today)
+          .where('status', whereIn: const ['Present', 'Completed'])
+          .snapshots(),
+
+      builder: (context, snapshot) {
+        String value = '—';
+
+        if (snapshot.hasData) {
+          value = snapshot.data!.docs.length.toString();
+        }
+
+        return _statCard(
+          icon: Icons.person_pin_circle_outlined,
+          title: 'Present Today',
+          value: value,
+          iconColor: Colors.greenAccent,
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // STAT CARD
+  // ============================================================
+
+  Widget _statCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color iconColor,
+  }) {
+    return Container(
+      width: double.infinity,
+
+      padding: const EdgeInsets.all(16),
+
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+
+        borderRadius: BorderRadius.circular(20),
+
+        border: Border.all(color: Colors.white24),
+      ),
+
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+
+        children: [
+          Container(
+            height: 42,
+            width: 42,
+
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.15),
+
+              borderRadius: BorderRadius.circular(13),
+            ),
+
+            child: Icon(icon, color: iconColor, size: 23),
+          ),
+
+          const SizedBox(height: 13),
+
+          Text(
+            value,
+
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontSize: 23,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 2),
+
+          Text(
+            title,
+
+            style: GoogleFonts.poppins(
+              color: Colors.white60,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // HEADER
+  // ============================================================
 
   Widget _buildHeader(BuildContext context, String studentId) {
     return Row(
@@ -226,7 +454,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             children: [
               Text(
-                "Vision The Library",
+                'Vision The Library',
+
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontSize: 18,
@@ -235,7 +464,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
 
               Text(
-                "Knowledge Beyond Limits",
+                'Knowledge Beyond Limits',
+
                 style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12),
               ),
             ],
@@ -248,7 +478,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.12),
+
             borderRadius: BorderRadius.circular(16),
+
             border: Border.all(color: Colors.white24),
           ),
 
@@ -273,6 +505,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ============================================================
+  // PROFILE SECTION
+  // ============================================================
+
   Widget _buildProfileSection({
     required String name,
     required String studentId,
@@ -295,12 +531,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             child: CircleAvatar(
               radius: 50,
+
               backgroundColor: Colors.white24,
 
               child: Icon(
-                gender == "Girl" ? Icons.person_2 : Icons.person,
+                gender == 'Girl' ? Icons.person_2 : Icons.person,
 
                 color: Colors.white,
+
                 size: 60,
               ),
             ),
@@ -323,7 +561,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 4),
 
           Text(
-            "Student ID : $studentId",
+            'Student ID : $studentId',
 
             style: GoogleFonts.poppins(color: Colors.white70, fontSize: 15),
           ),
@@ -331,6 +569,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // INFO CARD
+  // ============================================================
 
   Widget _buildInfoCard({
     required String libraryId,
@@ -365,41 +607,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return GlassCard(
           child: Column(
             children: [
-              _buildInfoRow(Icons.badge_outlined, "Library ID", libraryId),
+              _buildInfoRow(Icons.badge_outlined, 'Library ID', libraryId),
 
               _divider(),
 
-              _buildInfoRow(Icons.access_time, "Shift", shift),
+              _buildInfoRow(Icons.access_time, 'Shift', shift),
 
               _divider(),
 
-              _buildInfoRow(Icons.event_seat, "Seat", seat),
+              _buildInfoRow(Icons.event_seat, 'Seat', seat),
 
               _divider(),
 
               _buildInfoRow(
                 Icons.verified_user_outlined,
-                "Membership",
+                'Membership',
                 membership,
-                valueColor: membership == "Active"
+                valueColor: membership == 'Active'
                     ? AppColors.successGreen
                     : Colors.redAccent,
               ),
 
               _divider(),
 
-              _buildInfoRow(Icons.calendar_today, "Valid Till", validTill),
+              _buildInfoRow(Icons.calendar_today, 'Valid Till', validTill),
 
               _divider(),
 
-              _buildInfoRow(Icons.wifi, "Required Wi-Fi", "Vision"),
+              _buildInfoRow(Icons.wifi, 'Required Wi-Fi', 'Vision'),
 
               _divider(),
 
               _buildInfoRow(
                 Icons.fact_check,
                 "Today's Attendance",
-                attendanceMarked ? "Present" : "Not Marked",
+                attendanceMarked ? 'Present' : 'Not Marked',
                 valueColor: attendanceMarked
                     ? Colors.green
                     : Colors.orangeAccent,
@@ -410,6 +652,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+
+  // ============================================================
+  // INFO ROW
+  // ============================================================
 
   Widget _buildInfoRow(
     IconData icon,
@@ -451,6 +697,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // DIVIDER
+  // ============================================================
 
   Widget _divider() {
     return Divider(color: Colors.white.withValues(alpha: 0.10), height: 1);
